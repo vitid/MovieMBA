@@ -1,0 +1,315 @@
+---
+title: "Movie Recommendation with Market Basket Analysis"
+output: 
+    html_document:
+        toc: true
+---
+
+# Introduction
+In this project, we utilized a data mining algorithm, Apriori, to mine a relationship among films and build a movie recommendation engine. Apriori is a technique in Market Basket Analysis used to discover items that are usually bought together. Frequently purchased itemset suggests marketing opportunity when customers displayed interest in a subset item. In this case, movies can be view as a set of items. Our aim is to recommend a movie that can pique user's interest based on their certain preference. We obtained our training data from MovieLens's website(<http://grouplens.org/datasets/movielens/>). We used `MovieLens 20M Dataset` dataset which consisted 20,000,263 user ratings, across 27,278 movies and 138,493 raters. We found that the mining technique can be utilized to uncover a relationship in the movies that are frequently watched together.
+
+```{r setup, include=FALSE}
+#cache the result
+knitr::opts_chunk$set(cache=TRUE)
+```
+
+# Explore Movie Data
+We extract the compressed file in `ml-20m` directory. We interest in 2 data files:  
+
+* movies.csv(contains information about movies)
+* ratings.csv(user ratings)
+
+We firstly investigate movies.csv file
+
+```{r load_package,message=FALSE}
+#load all required package
+library(arules)
+library(dplyr)
+library(reshape2)
+library(Matrix)
+library(stringr)
+library(stringdist)
+library(ggplot2)
+
+setwd("/home/vitidn/mydata/repo_git/MovieMBA/")
+```
+
+```{r load_data}
+movies = read.csv("ml-20m/movies.csv", 
+                  colClasses = c("integer","character","character"),
+                  sep = ",",
+                  stringsAsFactors = FALSE)
+
+head(movies)
+```
+
+We separate released year from a title
+
+```{r}
+movies$year = as.numeric(str_sub( str_trim(movies$title) ,start = -5,end = -2))
+```
+
+Some movies have no release year/invalid title format. We note their movieId and discard them for this analysis.
+```{r}
+discard_movie_id = which(is.na(movies$year))
+#display discarded movies
+movies$title[discard_movie_id]
+
+movies = movies[-discard_movie_id,]
+```
+
+Title is extracted
+
+```{r}
+movies$title = str_sub( str_trim(movies$title) ,start = 1,end = -8)
+```
+
+Next, we would like to extract genres for each movie(noted that each film can belong to more than one genre). We look at total number of genres.
+
+```{r}
+all_genres = unique(unlist(str_split(movies$genres,"\\|")))
+
+all_genres
+```
+
+We see 2 genres that are really not a genre definition. We investigate a number of movies without genre defined.
+
+```{r}
+movies %>% filter(str_detect(genres,"(no genres listed)") ) %>% nrow()
+```
+
+We create binary dummy variables for another 18 genres. We assign each film to the genre it belongs. We discard "IMAX" genre and assign every genres to movies without genre identified. We check the transformed result and drop `genres` column.
+
+```{r}
+all_genres = all_genres[! all_genres %in% c("IMAX","(no genres listed)")]
+
+for(genre in all_genres){
+    movies[str_c("genre_",genre)] = ifelse(( str_detect(movies$genres,genre) | str_detect(movies$genres,"no genres") ) , 1 , 0)
+}
+
+#check the result
+head(movies)
+tail(movies)
+
+movies$genres = NULL
+```
+
+We explore a number of movies for each year in the dataset that we have
+
+```{r}
+ggplot(movies,aes(x=year)) + geom_bar() + ggtitle("Number of Movies")
+```
+
+We also explore a distributon of each movie genres
+
+```{r}
+genre_dist = colSums(movies[,4:21])
+genre_dist_df = data.frame(genre = names(genre_dist),count = genre_dist)
+genre_dist_df$genre = factor(genre_dist_df$genre,levels = names(sort(genre_dist,decreasing = FALSE)))
+
+ggplot(genre_dist_df,aes(x=genre,y=count,fill=genre)) + 
+    geom_bar(stat = "identity") + 
+    coord_flip() + 
+    ggtitle("Genre Distribution") + 
+    theme(legend.position = "none")
+```
+
+Now, we get a basic understanding of our movie dataset. Genre and year that we extracted will served as a filter that users can use to narrow down their interest.
+
+# Construct Association Rules from Rating Data
+
+We proceed to read ratings.csv and investigate the dataset. We skip reading `rating` and `timestamp` columns. Noted that we ignore the actual rating here as we put more focus on the fact that the scored movies hold some interesting quality that they at least led the viewers to view them.
+
+```{r}
+ratings = read.csv("ml-20m/ratings.csv",
+                   colClasses = c("integer","integer","NULL","NULL"),
+                   sep=",",
+                   stringsAsFactors = FALSE)
+
+head(ratings)
+```
+
+We discard ratings that contain id in `discard_movie_id`
+```{r}
+ratings = ratings %>% filter(! movieId %in% discard_movie_id )
+```
+
+We look at a total number of ratings left
+
+```{r}
+dim(ratings)[1]
+```
+
+We use `arules` package to perform the frequent itemset mining with Apriori algorithm. We construct User-Item matrix with binary values; 0 - a movie isn't seen by a user, and 1 - it is seen. The package use a sparse matrix object, `transactions`, to represent User-Item matrix. This prevents our computing machine from consuming all available RAM as most elements in the matrix will be zero.
+
+```{r}
+#convert rating-per-row dataframe into sparse User-Item matrix
+user_item_matrix <- as(split(ratings[,"movieId"], ratings[,"userId"]), "transactions")
+
+#investigate the User-Item matrix
+#transactions (rows) -> number of raters
+#items (columns) -> number of movies
+user_item_matrix
+```
+
+```{r echo=FALSE}
+#clear unused variable
+rm(ratings)
+gc()
+```
+
+Next, we mine for a frequent pair of movies that raters watched. We hypothesize that if movie A and B are frequently viewed together, there should be some underlying relationships between them that incite viewer's curiosity. We can use such finding to recommend movie B to a user if he/she already saw A(or vice versa).  
+
+We set the support threshold to 0.001(the pair is watched together by at least 139 raters) and the minimum confidence(the likelihood that if user watched movie A, he/she will also watch movie B ) to 70%.
+
+```{r}
+rule_param = list(
+    supp = 0.001,
+    conf = 0.7,
+    maxlen = 2
+)
+```
+
+We run Apriori based on the specified rule
+
+```{r}
+assoc_rules = apriori(user_item_matrix,parameter = rule_param)
+```
+
+We summarize the association rule
+
+```{r}
+summary(assoc_rules)
+```
+
+We constructed 189611 rules here. We also get summary statistics of "lift" for all rules. Lift is used to measure how the rule "if an user watched A then he will proceed to watch B" performs against chance. For example, if movie B is watched by every users, then the rule A => B will have 100% confidence but this rule will not be really interesting as there is no point to recommend it because everyone tend to watch it anyway. We can use lift to filter the "interestingness" of each rule. Lift equal 1 suggests that A and B are independent. The higher the number, the more they related.
+
+With such huge number of rules, we filter only those that have lift exceed their 75% percentile(4.323).
+
+```{r}
+assoc_rules = subset(assoc_rules, lift >= 4.323)
+
+summary(assoc_rules)
+```
+
+We cast `assoc_rules` to data.frame and look at some of the data
+
+```{r}
+assoc_rules = as(assoc_rules,"data.frame")
+
+head(assoc_rules)
+```
+
+The rules still contain `movieId`. We split movies in both sides to a new column
+
+```{r}
+rules = sapply(assoc_rules$rules,function(x){
+    x = gsub("[\\{\\}]", "", regmatches(x, gregexpr("\\{.*\\}", x))[[1]])
+    x = gsub("=>",",",x)
+    x = str_replace_all(x," ","")
+    return( x )
+})
+
+rules = as.character(rules)
+rules = str_split(rules,",")
+
+assoc_rules$lhs_movie = sapply( rules, "[[", 1)
+assoc_rules$rhs_movie = sapply( rules , "[[", 2)
+
+assoc_rules$rules = NULL
+rm(rules)
+gc()
+
+assoc_rules$lhs_movie = as.numeric(assoc_rules$lhs_movie)
+assoc_rules$rhs_movie = as.numeric(assoc_rules$rhs_movie)
+```
+
+We join `assoc_rules` with `movies` to get titles on the left hand side and right hand side of the rule, and also their corresponding genres and released year.
+
+```{r}
+assoc_rules = assoc_rules %>% left_join(movies,by=c("lhs_movie" = "movieId") )
+
+assoc_rules$lhs_movie = NULL
+col_name = colnames(assoc_rules)
+col_name[5:24] = str_c("left.",col_name[5:24])
+colnames(assoc_rules) = col_name
+
+assoc_rules = assoc_rules %>% left_join(movies,by=c("rhs_movie" = "movieId"))
+assoc_rules$rhs_movie = NULL
+col_name = colnames(assoc_rules)
+col_name[24:43] = str_c("right.",col_name[24:43])
+colnames(assoc_rules) = col_name
+```
+
+```{r echo=FALSE}
+rm(movies)
+gc()
+```
+
+# Mining the Relationship and Recommending Movies
+
+Now, we can look at the rules we mined. For example, we can look at top rules with highest lift.
+
+```{r}
+assoc_rules %>% arrange(desc(lift)) %>% select(left.title,left.year,right.title,right.year,support,confidence,lift) %>% head()
+```
+
+For the top rules, we discover sequel/prequel relationship between the movies. We would like to find recommendations that have not-so-obvious relationship instead.
+
+We can filter out results that have sequel-prequel relationship based on their similar titles. We do a naive filter here. Result with number on both sides or similar opening string is removed, we also exclude the "Thin man" serie.
+
+```{r}
+assoc_rules = assoc_rules %>% 
+    filter( ! (grepl("[0-9]",left.title,perl = TRUE) &  grepl("[0-9]",right.title,perl = TRUE) ) ) %>%
+    filter( ! (grepl("Thin Man",left.title,perl = TRUE) &  grepl("Thin Man",right.title,perl = TRUE) ) ) %>%
+    filter( substr( left.title,start = 1,stop = min(5,str_length(left.title),str_length(right.title)) ) != substr( right.title,start = 1,stop = min(5,str_length(left.title),str_length(right.title)) ) ) %>%
+    arrange(desc(lift))
+
+head(assoc_rules %>% select(left.title,left.year,right.title,right.year,support,confidence,lift),10)
+```
+
+Thre are many ideas that we can throw into the association rules. For example, we would like to look at modern movies that led users to view the older film.
+
+```{r}
+assoc_rules %>% 
+    filter(left.year > 2000 & right.year < 1990) %>%
+    arrange(desc(lift)) %>% 
+    select(left.title,left.year,right.title,right.year,support,confidence,lift) %>% 
+    head(20)
+```
+
+Many Ghibli's films and japanese animations appear here. It looks like modern japanese animations have enough power to draw viewers into their own world. We are quite surprised that Disney films didn't top the chart. Home on the Range did lead viewers back to The Little Mermaid. Maybe that film is so bad so that it makes viwers yearn for Disney's renaissance era? Another notable exception is Inland Empire and Blue Velvet, which should make "Lynchian" viewers delight.
+
+We can also incorporate movie's genres. We calculate the number of common genres among two films.
+
+```{r}
+assoc_rules$common_genre = apply(assoc_rules,1,function(x){
+                            sum(as.numeric(x[6:23]) & as.numeric(x[26:43]))
+                            })
+```
+
+Then, we mine for a movie that led viewers to a totally different kind of movie(common_genre = 0). We prefer modern films which span across different years.
+
+```{r}
+assoc_rules %>% filter(common_genre == 0) %>% 
+    filter( abs(left.year - right.year) >= 5 & left.year > 2000 & right.year > 2000) %>%
+    select(left.title,left.year,right.title,right.year,support,confidence,lift) %>%
+    head(20)
+```
+
+The top rule consisted of both Korean movies. Thirst, which led to our favorite film: Old Boy, is a film that we have never seen before but its synopsis does sound really interesting to us! This displays the case where we may need to consider a rule on both direction as well.
+
+Lastly, we can use assocation rules to recommend a potential movie. Let the Right One In is our favorite film and we would like to explore further movies based on it.
+
+```{r}
+assoc_rules %>% 
+    filter(str_detect(left.title,"Let the Right One In") | str_detect(right.title,"Let the Right One In")) %>%
+    select(left.title,left.year,right.title,right.year,support,confidence,lift) %>%
+    head(20)
+
+```
+
+Thirst(again) appears here. It's interesting to note that both films contain vampirism element and are not well known, which is reflected in the high lift score. The other three movies are significantly more popular. Their rules are not very interesting since many viewers also watch them anyway, regardless of the influence movie(reflected in the considerably lower lift scores). Donnie Darko, a surreal and mind-bending film, does make a bit surprise, as we didn't expect it to be heard of by so many viewers, but this perhap reflects an enthusiasm(and bias) in the film rating communities.
+
+# Conclusion
+In this report, we apply a traditional Market Basket Analysis technique to a film recommendation setting. The technique does not provide a recommendation in a fine-grained user level, as it can be typically done by Collaborative Filtering, but it does enable us to investigate an underlying relationship within the movies. We can utilized such finding to construct a new marketing campaign, research customer's behavior, or make a product suggestion. The mining technique can also be deployed in many problem contexts, provided that they can be formulated by User-Item rating scenario.
