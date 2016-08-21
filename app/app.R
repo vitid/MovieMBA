@@ -126,7 +126,7 @@ ui = navbarPage(title = "Movie Recommendation with Market Basket Analysis",
     ),
     tabPanel("Report",
         HTML('
-             <h2>Please look at <a href="http://rpubs.com/vitidN/202470">this site</a></h2>
+             <h2>Please look at <a href="http://rpubs.com/vitidN/203264">this site</a></h2>
              ')
     )
 )
