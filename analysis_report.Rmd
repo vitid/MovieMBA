@@ -6,7 +6,7 @@ output:
 ---
 
 # Introduction
-In this project, we applied a data mining algorithm, Apriori, to mine a relationship among films and build a movie recommendation engine. Apriori is a technique in Market Basket Analysis used to discover items that are frequently sold together. Frequently purchased itemset suggests marketing opportunity when customers displayed interest in the subset items. In this case, movies can be viewed as a set of items. We obtained our training data from MovieLens's website(<http://grouplens.org/datasets/movielens/>). We used `MovieLens 20M Dataset` dataset which consisted of 20,000,263 user ratings, across 27,278 movies and 138,493 raters. We found that the mining technique can be utilized to uncover an underlying connection within the movies. It can also be used in a movie recommendation, but a number of suggested films can be quite limited and the quality of such suggestions can be vary.
+In this project, we applied a data mining algorithm, Apriori, to mine a relationship among films and build a movie recommendation engine. Apriori is a technique in Market Basket Analysis used to discover items that are frequently sold together. Frequently purchased itemset suggests marketing opportunity when customers displayed interest in the subset items. In this case, movies can be viewed as a set of items. We obtained our training data from MovieLens's website(<http://grouplens.org/datasets/movielens/>). We used `MovieLens 20M Dataset` dataset which consisted of 20,000,263 user ratings, across 27,278 movies and 138,493 raters. We found that the mining technique can be utilized to uncover an underlying connection within the movies. It can also be used in a movie recommendation, but a number of suggested films can be quite limited and the quality of such suggestions can be vary. Additionally, we also built a web interface that allows users to access our mining result. The web can be found here <https://vitidn.shinyapps.io/MovieRecommendationWithMarketBasketAnalysis/>.
 
 ```{r setup, include=FALSE}
 #cache the result
@@ -78,7 +78,7 @@ We see 2 genres that are really not a genre definition. We investigate a number 
 movies %>% filter(str_detect(genres,"(no genres listed)") ) %>% nrow()
 ```
 
-We create binary dummy variables for another 18 genres. We assign each film to the genre it belongs. We discard "IMAX" genre and assign every genres to movies without genre identified. We check the transformed result and drop `genres` column.
+We create binary dummy variables for another 18 genres. We assign each film to the genre it belongs. We discard "IMAX" genre and assign every genre to movies without genre identified. We check the transformed result and drop `genres` column.
 
 ```{r}
 all_genres = all_genres[! all_genres %in% c("IMAX","(no genres listed)")]
@@ -114,7 +114,7 @@ ggplot(genre_dist_df,aes(x=genre,y=count,fill=genre)) +
     theme(legend.position = "none")
 ```
 
-Now, we get a basic understanding of our movie dataset. Genre and year that we extracted will served as a filter that users can use to narrow down their interest.
+Now, we get a basic understanding of our movie dataset. Genre and year that we extracted will be served as a filter that users can use to narrow down their interest.
 
 # Construct Association Rules from Rating Data
 
@@ -140,7 +140,7 @@ We look at a total number of ratings left
 dim(ratings)[1]
 ```
 
-We use `arules` package to perform the frequent itemset mining with Apriori algorithm. We construct User-Item matrix with binary values; 0 - a movie isn't seen by a user, and 1 - it is seen. The package use a sparse matrix object, `transactions`, to represent User-Item matrix. This prevents our computing machine from consuming all available RAM as most elements in the matrix will be zero.
+We use `arules` package to perform the frequent itemset mining with Apriori algorithm. We construct User-Item matrix with binary values; 0 - a movie isn't seen by a user, and 1 - it is seen. The package uses a sparse matrix object, `transactions`, to represent User-Item matrix. This prevents our computing machine from consuming all available RAM as most elements in the matrix will be zero.
 
 ```{r}
 #convert rating-per-row dataframe into sparse User-Item matrix
@@ -160,7 +160,7 @@ gc()
 
 Next, we mine for a frequent pair of movies that raters watched. We hypothesize that if movie A and B are frequently viewed together, there should be some underlying relationships between them that incite viewer's curiosity. We can use such finding to recommend movie B to a user if he/she already saw A(or vice versa).  
 
-We set the support threshold to 0.001(the pair is watched together by at least 139 raters) and the minimum confidence(the likelihood that if user watched movie A, he/she will also watch movie B ) to 70%.
+We set the support threshold to 0.001(the pair is watched together by at least 139 raters) and the minimum confidence(the likelihood that if a user watched movie A, he/she will also watch movie B ) to 70%.
 
 ```{r}
 rule_param = list(
@@ -182,7 +182,7 @@ We summarize the association rule
 summary(assoc_rules)
 ```
 
-We constructed 189611 rules here. We also get summary statistics of "lift" for all rules. Lift is used to measure how the rule "if an user watched A then he will proceed to watch B" performs against chance. For example, if movie B is watched by every users, then the rule A => B will have 100% confidence but this rule will not be really interesting as there is no point to recommend it because everyone tend to watch it anyway. We can use lift to filter the "interestingness" of each rule. Lift equal 1 suggests that A and B are independent. The higher the number, the more they related.
+We constructed 189611 rules here. We also get summary statistics of "lift" for all rules. Lift is used to measure how the rule "if a user watched A then he will proceed to watch B" performs against chance. For example, if movie B is watched by every user, then the rule A => B will have 100% confidence but this rule will not be really interesting as there is no point to recommend it because everyone tends to watch it anyway. We can use lift to filter the "interestingness" of each rule. Lift equal 1 suggests that A and B are independent. The higher the number, the more they related.
 
 With such huge number of rules, we filter only those that have lift exceed their 75% percentile(4.323).
 
@@ -224,7 +224,7 @@ assoc_rules$lhs_movie = as.numeric(assoc_rules$lhs_movie)
 assoc_rules$rhs_movie = as.numeric(assoc_rules$rhs_movie)
 ```
 
-We join `assoc_rules` with `movies` to get titles on the left hand side and right hand side of the rule, and also their corresponding genres and released year.
+We join `assoc_rules` with `movies` to get titles on the left-hand side and right-hand side of the rule, and also their corresponding genres and released year.
 
 ```{r}
 assoc_rules = assoc_rules %>% left_join(movies,by=c("lhs_movie" = "movieId") )
@@ -248,15 +248,15 @@ gc()
 
 # Mining the Relationship and Recommending Movies
 
-Now, we can look at the rules we mined. For example, we can look at top rules with highest lift.
+Now, we can look at the rules we mined. For example, we can look at top rules with the highest lift.
 
 ```{r}
 assoc_rules %>% arrange(desc(lift)) %>% select(left.title,left.year,right.title,right.year,support,confidence,lift) %>% head()
 ```
 
-For the top rules, we discover sequel/prequel relationship between the movies. We would like to find recommendations that have not-so-obvious relationship instead.
+For the top rules, we discover sequel/prequel relationship between the movies. We would like to find recommendations that have a not-so-obvious relationship instead.
 
-We can filter out results that have sequel-prequel relationship based on their similar titles. We do a naive filter here. Result with number on both sides or similar opening string is removed, we also exclude the "Thin man" serie.
+We can filter out results that have a sequel-prequel relationship based on their similar titles. We do a naive filter here. Results with a number on both sides or similar opening string is removed, we also exclude the "Thin man" series.
 
 ```{r}
 assoc_rules = assoc_rules %>% 
@@ -268,6 +268,8 @@ assoc_rules = assoc_rules %>%
 head(assoc_rules %>% select(left.title,left.year,right.title,right.year,support,confidence,lift),10)
 ```
 
+Some sequel/prequel pairs still appear here. Noted that we discover pairs that have the same director and similar style(such as Tenebre and Suspiria). Some films that released in the same year which feature similar setting (All Is Lost and Captain Phillips, etc.) also present.
+
 Thre are many ideas that we can throw into the association rules. For example, we would like to look at modern movies that led users to view the older film.
 
 ```{r}
@@ -278,7 +280,7 @@ assoc_rules %>%
     head(20)
 ```
 
-Many Ghibli's films and japanese animations appear here. It looks like modern japanese animations have enough power to draw viewers into their own world. In contrast, only few Disney animations top the chart, which can be because they are watched by nearly everyone, which resulted in lower lift scores. We are quite surprised to see Home on the Range led viewers back to The Little Mermaid. Critic reception for the film is quite low. May be that reminded viwers of Disney's renaissance era? Another notable exception is Inland Empire and Blue Velvet, which "Lynchian" structure in both films is discovered.
+Many Ghibli's films and Japanese animations appear here. It looks like modern Japanese animations have enough power to draw viewers into their own world. In contrast, only few Disney animations top the chart, which can be because they are watched by nearly everyone, which resulted in lower lift scores. We are quite surprised to see Home on the Range led viewers back to The Little Mermaid. Critic reception for the film is quite low. Maybe that reminded viewers of Disney's renaissance era? Another notable exception is Inland Empire and Blue Velvet, which "Lynchian" structure in both films is discovered.
 
 We can also incorporate movie's genres. We calculate the number of common genres among two films.
 
@@ -297,9 +299,9 @@ assoc_rules %>% filter(common_genre == 0) %>%
     head(20)
 ```
 
-The top rule consisted of both Korean movies. Thirst, which led to our favorite film: Old Boy, is a film that we have never seen before but its synopsis does sound really interesting to us! This displays the case where we may need to consider a rule on both direction as well.
+The top rule consisted of both Korean movies. Thirst, which led to our favorite film: Old Boy, is a film that we have never seen before but its synopsis does sound really interesting to us! This displays the case where we may need to consider a rule on both directions as well.
 
-Lastly, we can use assocation rules to recommend a potential movie. Let the Right One In is our favorite film and we would like to explore further movies based on it.
+Lastly, we can use association rules to recommend a potential movie. Let the Right One In is our favorite film and we would like to explore further movies based on it.
 
 ```{r}
 assoc_rules %>% 
